@@ -14,3 +14,13 @@ SOURCES += main.cpp\
         mainwindow.cpp
 
 HEADERS  += mainwindow.h
+
+
+# ScanyApi lib
+
+win32: LIBS += -L"c:/Program Files/Cognitive/ScanifyAPI/libs" -lScApi
+
+INCLUDEPATH += "c:/Program Files/Cognitive/ScanifyAPI/include"
+DEPENDPATH += "c:/Program Files/Cognitive/ScanifyAPI/include"
+
+win32: PRE_TARGETDEPS += "c:/Program Files/Cognitive/ScanifyAPI/libs/ScApi.lib"
