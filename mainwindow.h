@@ -3,6 +3,7 @@
 
 #include <QtGui/QMainWindow>
 #include <QtGui/QDialog>
+#include "ScProxy.h"
 
 QT_BEGIN_NAMESPACE
 class QAction;
@@ -30,14 +31,15 @@ protected:
     QVBoxLayout* mainLayout;
     QFormLayout* formLayout;
 
-    QLineEdit* sernameEd;
+    QLineEdit* surnameEd;
     QLineEdit* nameEd;
-    QLineEdit* middlenameEd;
-    QLineEdit* genderEd;
-    QLineEdit* serialNumEd;
+    QLineEdit* secondNameEd;
+    QLineEdit* sexEd;
+    QLineEdit* serialEd;
+    QLineEdit* numberEd;
     QLineEdit* birthDateEd;
     QLineEdit* birthPlaceEd;
-    QLineEdit* issueData;
+    QLineEdit* issueDate;
     QLineEdit* givenByUnit;
     QLineEdit* gibenByCode;
     QLabel* photoLabel;
@@ -48,8 +50,14 @@ protected:
 
     QTextEdit* logTextEd;
 
+    ScInstance* scanyInstance;
+    ScPackage* scanyPackage;
+    ScScanDevice* scanyDevice;
+
     void CreateRow(QString comment, QLineEdit*& edit);
     void WriteLog(QString msg);
+    bool InitScanyApi();
+    bool CloseScanyApi();
 
 public slots:
     void Recognize();
