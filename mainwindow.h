@@ -61,8 +61,6 @@ protected:
 
 public slots:
     void Recognize();
-    void LoadFromFile();
-    void LoadFromScanner();
 };
 
 #endif // MAINWINDOW_H

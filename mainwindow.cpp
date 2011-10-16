@@ -31,12 +31,6 @@ MainWindow::MainWindow(QWidget *parent)
     mainLayout->addWidget(groupBox);
 
     QHBoxLayout* btnLayout = new QHBoxLayout;
-    loadBtn = new QPushButton(tr("Открыть"));
-    connect(loadBtn, SIGNAL(clicked()), this, SLOT(LoadFromFile()));
-    btnLayout->addWidget(loadBtn);
-    scannBtn = new QPushButton(tr("Сканировать"));
-    connect(scannBtn, SIGNAL(clicked()), this, SLOT(LoadFromScanner()));
-    btnLayout->addWidget(scannBtn);
     recognizeBtn = new QPushButton(tr("Распознать"));
     connect(recognizeBtn, SIGNAL(clicked()), this, SLOT(Recognize()));
     btnLayout->addWidget(recognizeBtn);
@@ -88,15 +82,6 @@ bool MainWindow::InitScanyApi()
     // 2. Устанавливает файл контекстных настроек
     ScSetupContext(scanyInstance, "scapi.ini");
 
-    // 3. Создание нового пакета
-    scanyPackage = ScPackageCreate(scanyInstance);
-    if (!scanyPackage) {
-        WriteLog("Не могу получить пакет ScanyApi");
-        WriteLog(QString("\n!Ошибка! %1\n").arg(ScGetErrorMessage(scanyInstance)));
-        return 0;
-    }
-
-    WriteLog("Пакет создан");
     return 1;
 }
 
@@ -109,47 +94,45 @@ bool MainWindow::CloseScanyApi()
         ScScannerClose(scanyDevice);
     }
     if (scanyPackage){
-            ScPackageClose(&scanyPackage);
-            WriteLog("Пакет закрыт.");
+        ScPackageClose(&scanyPackage);
+        WriteLog("Пакет закрыт.");
     }
     if (scanyInstance){
-            WriteLog("Завершение работы системы...");
-            ScTerminate(scanyInstance);
+        WriteLog("Завершение работы системы...");
+        ScTerminate(scanyInstance);
     }
 }
 
 #define CF_ROOT		"C:\\Program Files\\Cognitive\\ScanifyAPI\\"
 
-void MainWindow::LoadFromFile()
-{
-    InitScanyApi();
-    // 4. Подключение устройства сканирования
-    scanyDevice = ScScannerOpen(scanyInstance, SC_DEV_FILE, CF_ROOT"Dataflow\\Images\\passp_drive.jpg");
-    WriteLog(scanyDevice ? "Устройство сканирования из файла создано" : "Ошибка при создании устройсва сканирования");
-}
-
-void MainWindow::LoadFromScanner()
-{
-    if (!InitScanyApi()) return;
-    // 4. Подключение устройства сканирования
-    // Здесь можно указать имя сканера. Либо предоставить возможность
-    // пользователю самому выбрать посредством вызова:
-    ScScannerSelectTWAINSource(scanyInstance, NULL);
-    const char* pszTWAINSource1 = "";
-    scanyDevice = ScScannerOpen(scanyInstance, SC_DEV_SCANNER, (void*)pszTWAINSource1);
-    WriteLog(scanyDevice ? "Устройство сканирования с устройства создано" : "Ошибка при создании устройсва сканирования");
-}
-
 void MainWindow::Recognize()
 {
-    if (!scanyDevice) {
-        // TODO: по дефолту сканет из настроек
-        WriteLog("Устройство сканирования не выбрано. Выбирите либо файл, либо сканер.");
-        return;
-    }
+    if (!InitScanyApi()) return;
+
     // 5. Ввод паспорта и прав
     WriteLog("\n----------------- Ввод Паспорта РФ и Водительских Прав");
 
+    // 3. Создание нового пакета
+    scanyPackage = ScPackageCreate(scanyInstance);
+    if (!scanyPackage) {
+        WriteLog("Не могу получить пакет ScanyApi");
+        WriteLog(QString("\n!Ошибка! %1\n").arg(ScGetErrorMessage(scanyInstance)));
+        return;
+    }
+
+    WriteLog("Пакет создан");
+
+    int cnt = ScScannerGetTWAINSourceCount(scanyInstance);
+    for (int i = 0; i < cnt; ++i)
+    {
+        const char* c = ScScannerGetTWAINSourceName(scanyInstance, i);
+        if (c) WriteLog(c);
+    }
+
+    if (!scanyDevice) {
+        scanyDevice = ScScannerOpen(scanyInstance, SC_DEV_SCANNER, NULL);
+        ScScannerSetConfiguration(scanyDevice, "ScanPassportAndDriveLic");
+    }
 
     // 5.1 Выбрать цепочку обработки = Паспорт и права
     // Внимание! Если на исходном изображении предполагается
@@ -158,7 +141,7 @@ void MainWindow::Recognize()
     // соответствия указанных в нём прямоугольных зон документов
     // расположению документов на входном изображении.
     // См. [ScanPassportAndDriveLic]/Zone1, Zone2 и т.п
-    ScScannerSetConfiguration(scanyDevice, "ScanPassportAndDriveLic");
+
     // 5.2 Сканирование изображений в пакет
     WriteLog("Идёт сканирование...");
     ScImage* pImg = ScPackageScan(scanyPackage, scanyDevice, NULL);
@@ -166,6 +149,9 @@ void MainWindow::Recognize()
     if (!pImg) {
             WriteLog("Отсканировано 0 изображений!");
     }
+
+    ScScannerClose(scanyDevice);
+    scanyDevice = NULL;
 
     // 5.3 Распознавание изображений в пакете
     // (распознаются только вновь добавленные изображения)
@@ -243,5 +229,6 @@ void MainWindow::Recognize()
 
     // 9. Перемещение пакета в архив
     ScPackageMove(scanyPackage, CF_ROOT"Dataflow\\Archive");
+    ScPackageClose(&scanyPackage);
     return;
 }
