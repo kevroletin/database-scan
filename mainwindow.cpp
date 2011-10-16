@@ -25,7 +25,7 @@ MainWindow::MainWindow(QWidget *parent)
     CreateRow(tr("Место рождения"), birthPlaceEd);
     CreateRow(tr("Дата получения паспорта"), issueDate);
     CreateRow(tr("Выдано подразделением"), givenByUnit);
-    CreateRow(tr("Код подразделения"), gibenByCode);
+    CreateRow(tr("Код подразделения"), givenByCode);
     photoLabel = new QLabel;
     formLayout->addRow(tr("Фото"), photoLabel);
     mainLayout->addWidget(groupBox);
@@ -163,8 +163,9 @@ void MainWindow::Recognize()
     WriteLog("Идёт сканирование...");
     ScImage* pImg = ScPackageScan(scanyPackage, scanyDevice, NULL);
     WriteLog("\tзавершено");
-    if (!pImg)
+    if (!pImg) {
             WriteLog("Отсканировано 0 изображений!");
+    }
 
     // 5.3 Распознавание изображений в пакете
     // (распознаются только вновь добавленные изображения)
@@ -175,15 +176,17 @@ void MainWindow::Recognize()
     }
     WriteLog("\tзавершено");
 
-/*
     // (5.4) Первое изображение (паспорта) ужать и сэкспортировать в отдельную директорию
-    bool bDoExportImage = 1;
-    if (bDoExportImage && pImg){
-            if (!ScImageResample(pImg, 120, 120)) break;
+    if (pImg){
+        if (!ScImageResample(pImg, 120, 120)) {
+            WriteLog("Не могу сжать изображение");
+        } else {
             ScExportImageOptions exp = { SC_SAVE_JPG, 90, 0};
-            if (!ScImageExport(pImg, CF_ROOT"Dataflow\\Archive\\MyPassport.jpg", &exp)) break;
+            if (!ScImageExport(pImg, "./Passport.jpg", &exp)) {
+                WriteLog("Не могу экспортировать изображение");
+            }
+        }
     }
-*/
 
     // 7.A печать конктретных полей первого документа (паспорта)
     ScDocument *sdh = ScPackageGetFirstDoc(scanyPackage);
@@ -191,6 +194,7 @@ void MainWindow::Recognize()
         WriteLog("Не могу получить документ из пачки");
         return;
     }
+
     WriteLog(QString("Фамилия:   %1").arg(ScPackageGetFieldValue(sdh, "PP_SurName")));
     WriteLog(QString("Имя:       %1").arg(ScPackageGetFieldValue(sdh, "PP_Name")));
     WriteLog(QString("Отчество:  %1").arg(ScPackageGetFieldValue(sdh, "PP_SecName")));
@@ -202,6 +206,7 @@ void MainWindow::Recognize()
     WriteLog(QString("Выдано(организация):  %1").arg(ScPackageGetFieldValue(sdh, "PP_Kem")));
     WriteLog(QString("Выдано(дата):  %1").arg(ScPackageGetFieldValue(sdh, "PP_Date")));
     WriteLog(QString("Выдано(код подразделения):  %1").arg(ScPackageGetFieldValue(sdh, "PP_Podr")));
+    WriteLog(QString("Файл фото:  %1").arg(ScPackageGetFieldValue(sdh, "photo")));
 
     surnameEd->setText(ScPackageGetFieldValue(sdh, "PP_SurName"));
     nameEd->setText(ScPackageGetFieldValue(sdh, "PP_Name"));
@@ -213,8 +218,21 @@ void MainWindow::Recognize()
     numberEd->setText(ScPackageGetFieldValue(sdh, "PP_Num2"));
     givenByUnit->setText(ScPackageGetFieldValue(sdh, "PP_Kem"));
     issueDate->setText(ScPackageGetFieldValue(sdh, "PP_Date"));
-    gibenByCode->setText(ScPackageGetFieldValue(sdh, "PP_Podr"));
+    givenByCode->setText(ScPackageGetFieldValue(sdh, "PP_Podr"));
 
+    {
+        ScPackageInformation packInfo;
+        ScPackageGetInformation(scanyPackage, &packInfo);
+        QString photoFile = QString("%1\\%2").arg(packInfo.szName)
+                                            .arg(ScPackageGetFieldValue(sdh, "photo"));
+        QPixmap pix;
+        pix.load(photoFile);
+        pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
+        QBuffer buff;
+        pix.save(&buff);
+        photoLabel->setPixmap(pix);
+        WriteLog(QString("Полный путь к фото:  %1").arg(photoFile));
+    }
 
 /*
     // 8. Вызов пользовательской библиотеки экспорта пакета в текстовый формат

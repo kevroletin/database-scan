@@ -41,7 +41,7 @@ protected:
     QLineEdit* birthPlaceEd;
     QLineEdit* issueDate;
     QLineEdit* givenByUnit;
-    QLineEdit* gibenByCode;
+    QLineEdit* givenByCode;
     QLabel* photoLabel;
 
     QPushButton* loadBtn;
