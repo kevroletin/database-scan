@@ -3,6 +3,8 @@
 
 #include <QtGui/QMainWindow>
 #include <QtGui/QDialog>
+#include <QThread>
+#include <QMutex>
 #include "ScProxy.h"
 
 QT_BEGIN_NAMESPACE
@@ -15,9 +17,47 @@ class QLineEdit;
 class QMenu;
 class QMenuBar;
 class QPushButton;
+class QProgressBar;
+class QStatusBar;
 class QTextEdit;
 class QVBoxLayout;
 QT_END_NAMESPACE
+
+
+class ScanyThread : public QThread
+{
+    Q_OBJECT
+
+public:
+    virtual void run();
+    ScanyThread(QObject * parent = 0);
+    ~ScanyThread() { CloseScanyApi(); }
+
+private:
+    ScInstance* scanyInstance;
+    ScPackage* scanyPackage;
+    ScScanDevice* scanyDevice;
+    QMutex scanyInitMutex;
+    QMutex scanyRecognizeMutex;
+
+    int progressSteps;
+    int currentStep;
+
+    bool InitScanyApi();
+    bool CloseScanyApi();
+    void SetProgressSteps(int n) { progressSteps = n; currentStep = 0; }
+    void NextProgressStep(QString msg);
+    void WriteLog(QString msg);
+
+public slots:
+    void Recognize();
+
+signals:
+    void ProgressChanged();
+    void DataProcessed();
+    void Initialized();
+    void MessageSent();
+};
 
 class MainWindow : public QDialog
 {
@@ -27,9 +67,14 @@ public:
     MainWindow(QWidget *parent = 0);
     ~MainWindow();
 
-protected:
+private:
+    ScanyThread* scanyThread;
+
     QVBoxLayout* mainLayout;
     QFormLayout* formLayout;
+    QProgressBar* progressBar;
+//    QLabel* progressLabel;
+    QStatusBar* statusBar;
 
     QLineEdit* surnameEd;
     QLineEdit* nameEd;
@@ -50,17 +95,12 @@ protected:
 
     QTextEdit* logTextEd;
 
-    ScInstance* scanyInstance;
-    ScPackage* scanyPackage;
-    ScScanDevice* scanyDevice;
-
     void CreateRow(QString comment, QLineEdit*& edit);
-    void WriteLog(QString msg);
-    bool InitScanyApi();
-    bool CloseScanyApi();
 
-public slots:
-    void Recognize();
+public slots:   
+    void ChangeProgress();
+    void ReadData();
+    void ShowMessages();
 };
 
 #endif // MAINWINDOW_H

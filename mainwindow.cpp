@@ -1,19 +1,54 @@
 #include "mainwindow.h"
 #include <QtGui>
+#include <QMutex>
 #include <stdio.h>
+
+
+namespace Message {
+    QStringList strList;
+    QMutex mutex;
+}
+
+namespace Progress {
+    int value;
+    QString message;
+    QMutex mutex;
+}
+
+namespace Data {
+    QString surnameEd;
+    QString nameEd;
+    QString secondNameEd;
+    QString sexEd;
+    QString birthDateEd;
+    QString birthPlaceEd;
+    QString serialEd;
+    QString numberEd;
+    QString givenByUnit;
+    QString issueDate;
+    QString givenByCode;
+    QString photoFile;
+    QMutex mutex;
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QDialog(parent),
       mainLayout(new QVBoxLayout),
       formLayout(new QFormLayout),
-      logTextEd(new QTextEdit),
-      scanyInstance(NULL),
-      scanyPackage(NULL),
-      scanyDevice(NULL)
+      logTextEd(new QTextEdit)
 {
     logTextEd->setReadOnly(1);
 
     QGroupBox* groupBox = new QGroupBox();
+    {
+        photoLabel = new QLabel;
+        // TODO: load dummy photo from resources
+        QPixmap pix(100, 100);
+        pix.fill(Qt::transparent);
+        photoLabel->setPixmap(pix);
+        formLayout->addRow(tr("Фото"), photoLabel);
+        mainLayout->addWidget(groupBox);
+    }
     groupBox->setLayout(formLayout);
     CreateRow(tr("Фамилия").toAscii(), surnameEd);
     CreateRow(tr("Имя"), nameEd);
@@ -26,25 +61,42 @@ MainWindow::MainWindow(QWidget *parent)
     CreateRow(tr("Дата получения паспорта"), issueDate);
     CreateRow(tr("Выдано подразделением"), givenByUnit);
     CreateRow(tr("Код подразделения"), givenByCode);
-    photoLabel = new QLabel;
-    formLayout->addRow(tr("Фото"), photoLabel);
-    mainLayout->addWidget(groupBox);
 
     QHBoxLayout* btnLayout = new QHBoxLayout;
-    recognizeBtn = new QPushButton(tr("Распознать"));
-    connect(recognizeBtn, SIGNAL(clicked()), this, SLOT(Recognize()));
+    recognizeBtn = new QPushButton(tr("Распознать"));    
     btnLayout->addWidget(recognizeBtn);
     mainLayout->addLayout(btnLayout);
 
     mainLayout->addWidget(logTextEd);
 
+    statusBar = new QStatusBar(this);
+    statusBar->showMessage(tr("Приложение запущено"));
+    progressBar = new QProgressBar;
+    statusBar->addPermanentWidget(progressBar);
+    mainLayout->addWidget(statusBar);
+    //progressLabel = new QLabel(tr("Приложение запущено"));
+    //QPalette plt;
+    //plt.setColor(QPalette::WindowText, Qt::darkGray);
+    //progressLabel->setPalette(plt);
+    //prl->addWidget(progressLabel);
+    //prl->addWidget(progressBar);
+    //progressBox->setLayout(prl);
+    //mainLayout->addWidget(progressBox);
+
+    mainLayout->setMargin(0);
     setLayout(mainLayout);
     setWindowTitle(tr("Добавить паспорт"));
+
+    scanyThread = new ScanyThread;
+    connect(recognizeBtn, SIGNAL(clicked()), scanyThread, SLOT(Recognize()), Qt::QueuedConnection);
+    connect(scanyThread, SIGNAL(ProgressChanged()), this, SLOT(ChangeProgress()));
+    connect(scanyThread, SIGNAL(DataProcessed()), this, SLOT(ReadData()));
+    connect(scanyThread, SIGNAL(MessageSent()), this, SLOT(ShowMessages()));
+    scanyThread->start();
 }
 
 MainWindow::~MainWindow()
-{
-    CloseScanyApi();
+{ 
 }
 
 void MainWindow::CreateRow(QString comment, QLineEdit*& edit)
@@ -53,60 +105,127 @@ void MainWindow::CreateRow(QString comment, QLineEdit*& edit)
     formLayout->addRow(comment, edit);
 }
 
-void MainWindow::WriteLog(QString msg)
+void MainWindow::ShowMessages()
 {
-    logTextEd->setPlainText(QString("%1\n%2").arg(msg).
-                                              arg(logTextEd->toPlainText()));
+    QStringList list;
+    {
+        QMutexLocker lock(&Message::mutex);
+        list =  Message::strList;
+        Message::strList.clear();
+    }
+    QString str;
+    foreach (str, list) {
+        logTextEd->setPlainText(QString("%1\n%2").arg(str)
+                                                 .arg(logTextEd->toPlainText()));
+    }
+
 }
 
-bool MainWindow::InitScanyApi()
+void MainWindow::ChangeProgress()
 {
-    if (scanyInstance) {
-        WriteLog("ScanyApi уже инициализирована");
-        return 1;
-    }
+    QMutexLocker lock(&Progress::mutex);
 
-    // 1. Получение инстанса с-мы Scanify API
-    WriteLog("Инициализация системы...");
-    scanyInstance = ScInitialize();
-    if (!scanyInstance) {
-        WriteLog("Не могу получить глобальный объект ScanyApi");
-        WriteLog(QString("\n!Ошибка! %1\n").arg(ScGetErrorMessage(scanyInstance)));
-        return 0;
-    }
-    WriteLog("\tOK");
-
-    // 1.2 Версия ScAPI
-    WriteLog(QString("Текущая версия ScAPI: %1").arg(ScGetScanifyAPIVersion()));
-
-    // 2. Устанавливает файл контекстных настроек
-    ScSetupContext(scanyInstance, "scapi.ini");
-
-    return 1;
+    progressBar->setValue(Progress::value);
+    //progressLabel->setText(Progress::message);
+    statusBar->showMessage(Progress::message);
+    statusBar->showMessage(QString("%1").arg(Progress::value));
 }
 
-bool MainWindow::CloseScanyApi()
+void MainWindow::ReadData()
 {
-    if (!scanyInstance) {
-        WriteLog("ScapyApi не инициализирована");
+    QMutexLocker lock(&Data::mutex);
+
+    surnameEd->setText(Data::surnameEd);
+    nameEd->setText(Data::nameEd);
+    secondNameEd->setText(Data::secondNameEd);
+    sexEd->setText(Data::sexEd);
+    birthDateEd->setText(Data::birthDateEd);
+    birthPlaceEd->setText(Data::birthPlaceEd);
+    serialEd->setText(Data::serialEd);
+    numberEd->setText(Data::numberEd);
+    givenByUnit->setText(Data::givenByUnit);
+    issueDate->setText(Data::issueDate);
+    givenByCode->setText(Data::givenByCode);
+    {
+        QPixmap pix;
+        pix.load(Data::photoFile);
+        pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
+        QBuffer buff;
+        pix.save(&buff);
+        photoLabel->setPixmap(pix);
     }
-    if (scanyDevice) {
-        ScScannerClose(scanyDevice);
+}
+
+void ScanyThread::run()
+{
+    InitScanyApi();
+    exec();
+}
+
+void ScanyThread::NextProgressStep(QString msg)
+{
+    {
+        QMutexLocker lock(&Progress::mutex);
+        Progress::value = 100*(++currentStep) / progressSteps;
+        Progress::message = msg;
     }
-    if (scanyPackage){
-        ScPackageClose(&scanyPackage);
-        WriteLog("Пакет закрыт.");
+    emit ProgressChanged();
+}
+
+void ScanyThread::WriteLog(QString msg)
+{
+    {
+        QMutexLocker lock(&Message::mutex);
+        Message::strList << msg;
     }
-    if (scanyInstance){
-        WriteLog("Завершение работы системы...");
-        ScTerminate(scanyInstance);
-    }
+    emit MessageSent();
 }
 
 #define CF_ROOT		"C:\\Program Files\\Cognitive\\ScanifyAPI\\"
 
-void MainWindow::Recognize()
+void ScanyThread::Recognize()
 {
+    sleep(400);
+
+    if (!scanyRecognizeMutex.tryLock()) {
+        // TODO: tell user that he is not right
+        return;
+    }
+    QMutexLocker lock(&scanyRecognizeMutex);
+    scanyRecognizeMutex.unlock();
+
+#ifdef NO_SCANYAPY
+
+    SetProgressSteps(5);
+    NextProgressStep("Создание нового пакета");
+    sleep(1);
+    NextProgressStep("Инициализация устройства сканирование");
+    sleep(1);
+    NextProgressStep("Сканирование");
+    sleep(1);
+    NextProgressStep("Распознование");
+    {
+        QMutexLocker lock(&Data::mutex);
+
+        Data::surnameEd = "Имя";
+        Data::nameEd = "Фамилия";
+        Data::secondNameEd = "Отчество";
+        /*
+        Data::sexEd = ScPackageGetFieldValue(sdh, "PP_Sex");
+        Data::birthDateEd = ScPackageGetFieldValue(sdh, "PP_BirthDate");
+        Data::birthPlaceEd = ScPackageGetFieldValue(sdh, "PP_BirthPlace");
+        Data::serialEd = ScPackageGetFieldValue(sdh, "PP_Ser2");
+        Data::numberEd = ScPackageGetFieldValue(sdh, "PP_Num2");
+        Data::givenByUnit = ScPackageGetFieldValue(sdh, "PP_Kem");
+        Data::issueDate = ScPackageGetFieldValue(sdh, "PP_Date");
+        Data::givenByCode = ScPackageGetFieldValue(sdh, "PP_Podr");
+        Data::photoFile = QString("%1\\%2").arg(packInfo.szName)
+        */
+    }
+    NextProgressStep("Завершено");
+
+#else
+
     if (!InitScanyApi()) return;
 
     // 5. Ввод паспорта и прав
@@ -194,30 +313,26 @@ void MainWindow::Recognize()
     WriteLog(QString("Выдано(код подразделения):  %1").arg(ScPackageGetFieldValue(sdh, "PP_Podr")));
     WriteLog(QString("Файл фото:  %1").arg(ScPackageGetFieldValue(sdh, "photo")));
 
-    surnameEd->setText(ScPackageGetFieldValue(sdh, "PP_SurName"));
-    nameEd->setText(ScPackageGetFieldValue(sdh, "PP_Name"));
-    secondNameEd->setText(ScPackageGetFieldValue(sdh, "PP_SecName"));
-    sexEd->setText(ScPackageGetFieldValue(sdh, "PP_Sex"));
-    birthDateEd->setText(ScPackageGetFieldValue(sdh, "PP_BirthDate"));
-    birthPlaceEd->setText(ScPackageGetFieldValue(sdh, "PP_BirthPlace"));
-    serialEd->setText(ScPackageGetFieldValue(sdh, "PP_Ser2"));
-    numberEd->setText(ScPackageGetFieldValue(sdh, "PP_Num2"));
-    givenByUnit->setText(ScPackageGetFieldValue(sdh, "PP_Kem"));
-    issueDate->setText(ScPackageGetFieldValue(sdh, "PP_Date"));
-    givenByCode->setText(ScPackageGetFieldValue(sdh, "PP_Podr"));
-
     {
-        ScPackageInformation packInfo;
-        ScPackageGetInformation(scanyPackage, &packInfo);
-        QString photoFile = QString("%1\\%2").arg(packInfo.szName)
-                                            .arg(ScPackageGetFieldValue(sdh, "photo"));
-        QPixmap pix;
-        pix.load(photoFile);
-        pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
-        QBuffer buff;
-        pix.save(&buff);
-        photoLabel->setPixmap(pix);
-        WriteLog(QString("Полный путь к фото:  %1").arg(photoFile));
+        QMutexLocker lock(&Data::mutex);
+
+        Data::surnameEd = ScPackageGetFieldValue(sdh, "PP_SurName");
+        Data::nameEd = ScPackageGetFieldValue(sdh, "PP_Name");
+        Data::secondNameEd = ScPackageGetFieldValue(sdh, "PP_SecName");
+        Data::sexEd = ScPackageGetFieldValue(sdh, "PP_Sex");
+        Data::birthDateEd = ScPackageGetFieldValue(sdh, "PP_BirthDate");
+        Data::birthPlaceEd = ScPackageGetFieldValue(sdh, "PP_BirthPlace");
+        Data::serialEd = ScPackageGetFieldValue(sdh, "PP_Ser2");
+        Data::numberEd = ScPackageGetFieldValue(sdh, "PP_Num2");
+        Data::givenByUnit = ScPackageGetFieldValue(sdh, "PP_Kem");
+        Data::issueDate = ScPackageGetFieldValue(sdh, "PP_Date");
+        Data::givenByCode = ScPackageGetFieldValue(sdh, "PP_Podr");
+        {
+            ScPackageInformation packInfo;
+            ScPackageGetInformation(scanyPackage, &packInfo);
+            Data::photoFile = QString("%1\\%2").arg(packInfo.szName)
+                                               .arg(ScPackageGetFieldValue(sdh, "photo"));
+        }
     }
 
 /*
@@ -227,8 +342,98 @@ void MainWindow::Recognize()
                     break;
 */
 
+/*
     // 9. Перемещение пакета в архив
     ScPackageMove(scanyPackage, CF_ROOT"Dataflow\\Archive");
     ScPackageClose(&scanyPackage);
-    return;
+*/
+
+#endif
+
+    emit DataProcessed();
+}
+
+ScanyThread::ScanyThread(QObject * parent) :
+    QThread(parent),
+    scanyInstance(NULL),
+    scanyPackage(NULL),
+    scanyDevice(NULL),
+    scanyInitMutex(QMutex::Recursive),
+    scanyRecognizeMutex(QMutex::Recursive)
+{
+}
+
+bool ScanyThread::InitScanyApi()
+{  
+    if (!scanyInitMutex.tryLock()) {
+        return 0;
+    }
+    QMutexLocker lock(&scanyInitMutex);
+    scanyInitMutex.unlock();
+
+#ifdef NO_SCANYAPY
+    static bool first_time = false;
+    if (first_time) return 1;
+    first_time = true;
+
+    SetProgressSteps(3);
+    NextProgressStep("Инициализация");
+    sleep(1);
+    NextProgressStep("Устанавливаем файл контекстных настроек");
+    sleep(1);
+    NextProgressStep("Инициализация завершена");
+#else
+
+    if (scanyInstance) {
+        WriteLog("ScanyApi уже инициализирована");
+        return 1;
+    }
+
+    // 1. Получение инстанса с-мы Scanify API
+    WriteLog("Инициализация системы...");
+    scanyInstance = ScInitialize();
+    if (!scanyInstance) {
+        WriteLog("Не могу получить глобальный объект ScanyApi");
+        WriteLog(QString("\n!Ошибка! %1\n").arg(ScGetErrorMessage(scanyInstance)));
+        CloseScanyApi();
+        return 0;
+    }
+    WriteLog("\tOK");
+
+    // 1.2 Версия ScAPI
+    WriteLog(QString("Текущая версия ScAPI: %1").arg(ScGetScanifyAPIVersion()));
+
+    // 2. Устанавливает файл контекстных настроек
+    ScSetupContext(scanyInstance, "scapi.ini");
+
+#endif
+
+    emit Initialized();
+    return 1;
+}
+
+bool ScanyThread::CloseScanyApi()
+{
+#ifdef NO_SCANYAPY
+
+#endif
+
+    if (!scanyInstance) {
+        WriteLog("ScapyApi не инициализирована");
+    }
+
+    if (scanyDevice) {
+        ScScannerClose(scanyDevice);
+        scanyDevice = NULL;
+    }
+    if (scanyPackage){
+        ScPackageClose(&scanyPackage);
+        scanyPackage = NULL;
+        WriteLog("Пакет закрыт.");
+    }
+    if (scanyInstance){
+        WriteLog("Завершение работы системы...");
+        ScTerminate(scanyInstance);
+        scanyInstance = NULL;
+    }
 }
