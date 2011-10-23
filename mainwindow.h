@@ -5,7 +5,12 @@
 #include <QtGui/QDialog>
 #include <QThread>
 #include <QMutex>
+#include <QEvent>
+#include <QSettings>
+
+#ifndef NO_SCANYAPY
 #include "ScProxy.h"
+#endif
 
 QT_BEGIN_NAMESPACE
 class QAction;
@@ -34,9 +39,11 @@ public:
     ~ScanyThread() { CloseScanyApi(); }
 
 private:
+#ifndef NO_SCANYAPY
     ScInstance* scanyInstance;
     ScPackage* scanyPackage;
     ScScanDevice* scanyDevice;
+#endif
     QMutex scanyInitMutex;
     QMutex scanyRecognizeMutex;
 
@@ -73,7 +80,6 @@ private:
     QVBoxLayout* mainLayout;
     QFormLayout* formLayout;
     QProgressBar* progressBar;
-//    QLabel* progressLabel;
     QStatusBar* statusBar;
 
     QLineEdit* surnameEd;
@@ -89,13 +95,20 @@ private:
     QLineEdit* givenByCode;
     QLabel* photoLabel;
 
-    QPushButton* loadBtn;
-    QPushButton* scannBtn;
     QPushButton* recognizeBtn;
-
     QTextEdit* logTextEd;
 
+    QSettings settings;
+    QString userName;
+    QString password;
+    QString databaseName;
+    QString hostName;
+
     void CreateRow(QString comment, QLineEdit*& edit);
+    void LoadDefaultImage();
+    void ReadSettings();
+    void WriteSettings();
+    bool ConnectDatabase();
 
 public slots:   
     void ChangeProgress();

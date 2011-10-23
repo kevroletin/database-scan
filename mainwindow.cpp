@@ -1,6 +1,9 @@
 #include "mainwindow.h"
 #include <QtGui>
+#include <QtSql>
 #include <QMutex>
+#include <QEvent>
+#include <QSettings>
 #include <stdio.h>
 
 
@@ -35,17 +38,19 @@ MainWindow::MainWindow(QWidget *parent)
     : QDialog(parent),
       mainLayout(new QVBoxLayout),
       formLayout(new QFormLayout),
-      logTextEd(new QTextEdit)
+      logTextEd(new QTextEdit),
+      settings("settings.ini", QSettings::IniFormat)
 {
+    ReadSettings();
+    ConnectDatabase();
+
     logTextEd->setReadOnly(1);
 
     QGroupBox* groupBox = new QGroupBox();
     {
         photoLabel = new QLabel;
         // TODO: load dummy photo from resources
-        QPixmap pix(100, 100);
-        pix.fill(Qt::transparent);
-        photoLabel->setPixmap(pix);
+        LoadDefaultImage();
         formLayout->addRow(tr("Фото"), photoLabel);
         mainLayout->addWidget(groupBox);
     }
@@ -93,10 +98,24 @@ MainWindow::MainWindow(QWidget *parent)
     connect(scanyThread, SIGNAL(DataProcessed()), this, SLOT(ReadData()));
     connect(scanyThread, SIGNAL(MessageSent()), this, SLOT(ShowMessages()));
     scanyThread->start();
+    scanyThread->moveToThread(scanyThread);
+
+    //QCoreApplication::postEvent(scanyThread, )
 }
 
 MainWindow::~MainWindow()
-{ 
+{
+    WriteSettings();
+}
+
+void MainWindow::LoadDefaultImage()
+{
+    QPixmap pix;
+    pix.load(":/images/DummyPhoto.png");
+    pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
+    QBuffer buff;
+    pix.save(&buff);
+    photoLabel->setPixmap(pix);
 }
 
 void MainWindow::CreateRow(QString comment, QLineEdit*& edit)
@@ -126,9 +145,7 @@ void MainWindow::ChangeProgress()
     QMutexLocker lock(&Progress::mutex);
 
     progressBar->setValue(Progress::value);
-    //progressLabel->setText(Progress::message);
     statusBar->showMessage(Progress::message);
-    statusBar->showMessage(QString("%1").arg(Progress::value));
 }
 
 void MainWindow::ReadData()
@@ -148,12 +165,66 @@ void MainWindow::ReadData()
     givenByCode->setText(Data::givenByCode);
     {
         QPixmap pix;
-        pix.load(Data::photoFile);
-        pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
-        QBuffer buff;
-        pix.save(&buff);
-        photoLabel->setPixmap(pix);
+        if (!pix.load(Data::photoFile)) {
+            LoadDefaultImage();
+        } else {
+            pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
+            QBuffer buff;
+            pix.save(&buff);
+            photoLabel->setPixmap(pix);
+        }
+
     }
+}
+
+void MainWindow::ReadSettings()
+{
+    settings.beginGroup("MainWindow");
+        resize(settings.value("size", QSize(400, 400)).toSize());
+        move(settings.value("pos", QPoint(200, 200)).toPoint());
+    settings.endGroup();
+    settings.beginGroup("Database");
+        userName = settings.value("userName", "postgres").toString();
+        password = settings.value("password", "").toString();
+        hostName = settings.value("host", "localhost").toString();
+        databaseName = settings.value("databaseName", "postgres").toString();
+    settings.endGroup();
+}
+
+void MainWindow::WriteSettings()
+{
+    settings.beginGroup("MainWindow");
+        settings.setValue("size", size());
+        settings.setValue("pos", pos());
+    settings.endGroup();
+    settings.beginGroup("Database");
+        settings.setValue("userName", userName);
+        settings.setValue("password", password);
+        settings.setValue("host", hostName);
+        settings.setValue("databaseName", databaseName);
+    settings.endGroup();
+}
+
+bool MainWindow::ConnectDatabase()
+{
+    QSqlDatabase db = QSqlDatabase::addDatabase("QPSQL");
+    db.setUserName(userName);
+    db.setPassword(password);
+    db.setDatabaseName(databaseName);
+    db.setHostName(hostName);
+
+    if (!db.open()) {
+        QMessageBox::critical(0, tr("Не могу подключиться к базе данных"),
+            QString(tr("Не могу подключиться к базе данны.\n"
+                       "Имя пользователя: %1\n"
+                       "Пароль: %2\n"
+                       "Хост: %3\n"
+                       "База данных: %4\n")).arg(userName).arg(password).arg(hostName).arg(databaseName)
+                    , QMessageBox::Cancel);
+        return false;
+    }
+
+    return true;
 }
 
 void ScanyThread::run()
@@ -185,8 +256,6 @@ void ScanyThread::WriteLog(QString msg)
 
 void ScanyThread::Recognize()
 {
-    sleep(400);
-
     if (!scanyRecognizeMutex.tryLock()) {
         // TODO: tell user that he is not right
         return;
@@ -210,17 +279,15 @@ void ScanyThread::Recognize()
         Data::surnameEd = "Имя";
         Data::nameEd = "Фамилия";
         Data::secondNameEd = "Отчество";
-        /*
-        Data::sexEd = ScPackageGetFieldValue(sdh, "PP_Sex");
-        Data::birthDateEd = ScPackageGetFieldValue(sdh, "PP_BirthDate");
-        Data::birthPlaceEd = ScPackageGetFieldValue(sdh, "PP_BirthPlace");
-        Data::serialEd = ScPackageGetFieldValue(sdh, "PP_Ser2");
-        Data::numberEd = ScPackageGetFieldValue(sdh, "PP_Num2");
-        Data::givenByUnit = ScPackageGetFieldValue(sdh, "PP_Kem");
-        Data::issueDate = ScPackageGetFieldValue(sdh, "PP_Date");
-        Data::givenByCode = ScPackageGetFieldValue(sdh, "PP_Podr");
-        Data::photoFile = QString("%1\\%2").arg(packInfo.szName)
-        */
+        Data::sexEd = "МУЖ";
+        Data::birthDateEd = "10-10-10";
+        Data::birthPlaceEd = "Приморский край. г. Владивосток ул. Алеутская 32 кв. 8";
+        Data::serialEd = "00 00";
+        Data::numberEd = "000000";
+        Data::givenByUnit = "УВД. Фрунзенского района г. Владивостока";
+        Data::issueDate = "11-11-11";
+        Data::givenByCode = "7777";
+        Data::photoFile = "photo.png";
     }
     NextProgressStep("Завершено");
 
@@ -355,9 +422,11 @@ void ScanyThread::Recognize()
 
 ScanyThread::ScanyThread(QObject * parent) :
     QThread(parent),
+#ifndef NO_SCANYAPY
     scanyInstance(NULL),
     scanyPackage(NULL),
     scanyDevice(NULL),
+#endif
     scanyInitMutex(QMutex::Recursive),
     scanyRecognizeMutex(QMutex::Recursive)
 {
@@ -416,8 +485,7 @@ bool ScanyThread::CloseScanyApi()
 {
 #ifdef NO_SCANYAPY
 
-#endif
-
+#else
     if (!scanyInstance) {
         WriteLog("ScapyApi не инициализирована");
     }
@@ -436,4 +504,5 @@ bool ScanyThread::CloseScanyApi()
         ScTerminate(scanyInstance);
         scanyInstance = NULL;
     }
+#endif
 }

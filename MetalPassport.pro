@@ -4,7 +4,7 @@
 #
 #-------------------------------------------------
 
-QT       += core gui
+QT       += core gui sql
 
 TARGET = MetalPassport
 TEMPLATE = app
@@ -26,3 +26,6 @@ INCLUDEPATH += "c:/Program Files/Cognitive/ScanifyAPI/include"
 DEPENDPATH += "c:/Program Files/Cognitive/ScanifyAPI/include"
 
 win32: PRE_TARGETDEPS += "c:/Program Files/Cognitive/ScanifyAPI/libs/ScApi.lib"
+
+RESOURCES += \
+    Images.qrc
