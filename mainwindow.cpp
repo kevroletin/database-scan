@@ -63,13 +63,15 @@ MainWindow::MainWindow(QWidget *parent)
     CreateRow(tr("Номер"), numberEd);
     CreateRow(tr("Дата рождения"), birthDateEd);
     CreateRow(tr("Место рождения"), birthPlaceEd);
-    CreateRow(tr("Дата получения паспорта"), issueDate);
-    CreateRow(tr("Выдано подразделением"), givenByUnit);
-    CreateRow(tr("Код подразделения"), givenByCode);
+    CreateRow(tr("Дата получения паспорта"), issueDateEd);
+    CreateRow(tr("Выдано подразделением"), givenByUnitEd);
+    CreateRow(tr("Код подразделения"), givenByCodeEd);
 
     QHBoxLayout* btnLayout = new QHBoxLayout;
     recognizeBtn = new QPushButton(tr("Распознать"));    
+    saveBtn = new QPushButton(tr("Сохранить"));
     btnLayout->addWidget(recognizeBtn);
+    btnLayout->addWidget(saveBtn);
     mainLayout->addLayout(btnLayout);
 
     mainLayout->addWidget(logTextEd);
@@ -93,6 +95,7 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle(tr("Добавить паспорт"));
 
     scanyThread = new ScanyThread;
+    connect(saveBtn, SIGNAL(clicked()), this, SLOT(SaveToDatabase()));
     connect(recognizeBtn, SIGNAL(clicked()), scanyThread, SLOT(Recognize()), Qt::QueuedConnection);
     connect(scanyThread, SIGNAL(ProgressChanged()), this, SLOT(ChangeProgress()));
     connect(scanyThread, SIGNAL(DataProcessed()), this, SLOT(ReadData()));
@@ -110,6 +113,8 @@ MainWindow::~MainWindow()
 
 void MainWindow::LoadDefaultImage()
 {
+    photoBuffer.close();
+
     QPixmap pix;
     pix.load(":/images/DummyPhoto.png");
     pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
@@ -137,7 +142,6 @@ void MainWindow::ShowMessages()
         logTextEd->setPlainText(QString("%1\n%2").arg(str)
                                                  .arg(logTextEd->toPlainText()));
     }
-
 }
 
 void MainWindow::ChangeProgress()
@@ -160,20 +164,81 @@ void MainWindow::ReadData()
     birthPlaceEd->setText(Data::birthPlaceEd);
     serialEd->setText(Data::serialEd);
     numberEd->setText(Data::numberEd);
-    givenByUnit->setText(Data::givenByUnit);
-    issueDate->setText(Data::issueDate);
-    givenByCode->setText(Data::givenByCode);
+    givenByUnitEd->setText(Data::givenByUnit);
+    issueDateEd->setText(Data::issueDate);
+    givenByCodeEd->setText(Data::givenByCode);
     {
         QPixmap pix;
         if (!pix.load(Data::photoFile)) {
             LoadDefaultImage();
         } else {
-            pix = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
-            QBuffer buff;
-            pix.save(&buff);
-            photoLabel->setPixmap(pix);
+            QPixmap photoToSave;
+            photoToSave = pix.scaled(QSize(400, 400), Qt::KeepAspectRatio);
+            photoToSave.save(&photoBuffer, "PNG");
+
+            QPixmap photoToShow = pix.scaled(QSize(100, 100), Qt::KeepAspectRatio);
+            photoLabel->setPixmap(photoToShow);
         }
 
+    }
+
+    CheckPassportInDatabase();
+}
+
+bool MainWindow::CheckPassportInDatabase()
+{
+    QSqlQuery q;
+    q.prepare("SELECT id, name, birth_date FROM passports WHERE serial_number = :serial_number");
+    q.bindValue(":serial_number", serialEd->text() + (numberEd->text()));
+    if (!q.exec()) {
+       QMessageBox::critical(0, "Ошибка при сохранении значений в базу данных",
+                             q.lastError().text(), QMessageBox::Cancel);
+        return 0;
+    }
+    if (q.next()) {
+        QMessageBox::information(this, "Внимание!",
+                                 QString("Найден паспорт с заданным серийным номером\n\n"
+                                         "Id: %1\nФ.И.О: %2\nДата рождения: %3").arg(q.value(0).toString())
+                                                                                .arg(q.value(1).toString())
+                                                                                .arg(q.value(2).toString()),
+                                 QMessageBox::Ok);
+        return 0;
+    }
+    return 1;
+}
+
+void MainWindow::SaveToDatabase()
+{
+    if (!CheckPassportInDatabase()) return;
+
+    QSqlQuery q;
+    q.prepare(
+"INSERT INTO passports "
+"  (name, serial_number, issue_date, birth_date, birth_place, is_man, "
+"   given_by_unit_name, given_by_unit_code, photo)"
+"VALUES"
+"  (:name, :serial_number, :issue_date, :birth_date, :birth_place, :is_man, "
+"   :given_by_unit_name, :given_by_unit_code, :photo)"
+"RETURNING id"
+    );
+    q.bindValue(":name", QString("%1 %2 %3").arg(surnameEd->text(), nameEd->text(), secondNameEd->text()));
+    q.bindValue(":serial_number", serialEd->text() + (numberEd->text()));
+    q.bindValue(":issue_date", issueDateEd->text());
+    q.bindValue(":birth_date", birthDateEd->text());
+    q.bindValue(":birth_place", birthDateEd->text());
+    q.bindValue(":is_man", !QRegExp("^(Ж|ж).*$").exactMatch(sexEd->text()));
+    q.bindValue(":given_by_unit_name", givenByUnitEd->text());
+    q.bindValue(":given_by_unit_code", givenByCodeEd->text());
+    q.bindValue(":photo", photoBuffer.data());
+    if (!q.exec()) {
+        QMessageBox::critical(0, "Ошибка при сохранении значений в базу данных",
+                              q.lastError().text(), QMessageBox::Cancel);
+        return;
+    } else {
+        q.first();
+        int id = q.value(0).toInt();
+        statusBar->showMessage("Паспорт сохранён в базе данных");
+        logTextEd->append(QString("Паспорт сохранён в базе данных. Id: %1").arg(id));
     }
 }
 
@@ -267,11 +332,11 @@ void ScanyThread::Recognize()
 
     SetProgressSteps(5);
     NextProgressStep("Создание нового пакета");
-    sleep(1);
+    msleep(SLEEP_TIME);
     NextProgressStep("Инициализация устройства сканирование");
-    sleep(1);
+    msleep(SLEEP_TIME);
     NextProgressStep("Сканирование");
-    sleep(1);
+    msleep(SLEEP_TIME);
     NextProgressStep("Распознование");
     {
         QMutexLocker lock(&Data::mutex);
@@ -282,13 +347,14 @@ void ScanyThread::Recognize()
         Data::sexEd = "МУЖ";
         Data::birthDateEd = "10-10-10";
         Data::birthPlaceEd = "Приморский край. г. Владивосток ул. Алеутская 32 кв. 8";
-        Data::serialEd = "00 00";
+        Data::serialEd = "0000";
         Data::numberEd = "000000";
         Data::givenByUnit = "УВД. Фрунзенского района г. Владивостока";
         Data::issueDate = "11-11-11";
         Data::givenByCode = "7777";
         Data::photoFile = "photo.png";
     }
+    msleep(SLEEP_TIME);
     NextProgressStep("Завершено");
 
 #else
@@ -447,9 +513,9 @@ bool ScanyThread::InitScanyApi()
 
     SetProgressSteps(3);
     NextProgressStep("Инициализация");
-    sleep(1);
+    msleep(SLEEP_TIME);
     NextProgressStep("Устанавливаем файл контекстных настроек");
-    sleep(1);
+    msleep(SLEEP_TIME);
     NextProgressStep("Инициализация завершена");
 #else
 
@@ -505,4 +571,5 @@ bool ScanyThread::CloseScanyApi()
         scanyInstance = NULL;
     }
 #endif
+    return 1;
 }

@@ -7,9 +7,12 @@
 #include <QMutex>
 #include <QEvent>
 #include <QSettings>
+#include <QBuffer>
 
-#ifndef NO_SCANYAPY
-#include "ScProxy.h"
+#ifdef NO_SCANYAPY
+    #define SLEEP_TIME 200
+#else
+    #include "ScProxy.h"
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -90,12 +93,14 @@ private:
     QLineEdit* numberEd;
     QLineEdit* birthDateEd;
     QLineEdit* birthPlaceEd;
-    QLineEdit* issueDate;
-    QLineEdit* givenByUnit;
-    QLineEdit* givenByCode;
+    QLineEdit* issueDateEd;
+    QLineEdit* givenByUnitEd;
+    QLineEdit* givenByCodeEd;
     QLabel* photoLabel;
+    QBuffer photoBuffer;
 
     QPushButton* recognizeBtn;
+    QPushButton* saveBtn;
     QTextEdit* logTextEd;
 
     QSettings settings;
@@ -108,11 +113,13 @@ private:
     void LoadDefaultImage();
     void ReadSettings();
     void WriteSettings();
+    bool CheckPassportInDatabase();
     bool ConnectDatabase();
 
 public slots:   
     void ChangeProgress();
     void ReadData();
+    void SaveToDatabase();
     void ShowMessages();
 };
 
