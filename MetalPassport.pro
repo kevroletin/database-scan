@@ -15,7 +15,7 @@ SOURCES += main.cpp\
 
 HEADERS  += mainwindow.h
 
-DEFINES += NO_SCANYAPY
+#DEFINES += NO_SCANYAPY
 
 
 # ScanyApi lib

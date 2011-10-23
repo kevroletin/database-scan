@@ -114,6 +114,7 @@ private:
     void ReadSettings();
     void WriteSettings();
     bool CheckPassportInDatabase();
+    bool CheckForEmptyFields();
     bool ConnectDatabase();
 
 public slots:   

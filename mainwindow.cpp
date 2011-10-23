@@ -197,7 +197,7 @@ bool MainWindow::CheckPassportInDatabase()
     }
     if (q.next()) {
         QMessageBox::information(this, "Внимание!",
-                                 QString("Найден паспорт с заданным серийным номером\n\n"
+                                 QString("Найден паспорт с заданным номером\n\n"
                                          "Id: %1\nФ.И.О: %2\nДата рождения: %3").arg(q.value(0).toString())
                                                                                 .arg(q.value(1).toString())
                                                                                 .arg(q.value(2).toString()),
@@ -207,9 +207,37 @@ bool MainWindow::CheckPassportInDatabase()
     return 1;
 }
 
+bool MainWindow::CheckForEmptyFields()
+{
+    QString msg;
+    QRegExp rx(" *");
+
+    if (rx.exactMatch(surnameEd->text())) msg += tr("Фамилия\n");
+    if (rx.exactMatch(nameEd->text())) msg += tr("Имя\n");
+    if (rx.exactMatch(secondNameEd->text())) msg += tr("Отчество\n");
+    if (rx.exactMatch(sexEd->text())) msg += tr("Пол\n");
+    if (rx.exactMatch(serialEd->text())) msg += tr("Сирия\n");
+    if (rx.exactMatch(numberEd->text())) msg += tr("Номер\n");
+    if (rx.exactMatch(birthDateEd->text())) msg += tr("Дата рождения\n");
+    if (rx.exactMatch(birthPlaceEd->text())) msg += tr("Место рождения\n");
+    if (rx.exactMatch(issueDateEd->text())) msg += tr("Дата выдачи\n");
+    if (rx.exactMatch(givenByUnitEd->text())) msg += tr("Выдано подразделением\n");
+    if (rx.exactMatch(givenByCodeEd->text())) msg += tr("Код подразделения\n");
+    if (!photoBuffer.isOpen()) msg += tr("Фотография\n");
+
+    if (msg != "") {
+        QMessageBox::information(this, tr("Внимание"),
+                                 QString("Необходимо заполнить следующие поля:\n\n%1").arg(msg),
+                                 QMessageBox::Ok);
+        return 0;
+    }
+    return 1;
+}
+
 void MainWindow::SaveToDatabase()
 {
     if (!CheckPassportInDatabase()) return;
+    if (!CheckForEmptyFields()) return;
 
     QSqlQuery q;
     q.prepare(
@@ -341,8 +369,8 @@ void ScanyThread::Recognize()
     {
         QMutexLocker lock(&Data::mutex);
 
-        Data::surnameEd = "Имя";
-        Data::nameEd = "Фамилия";
+        Data::surnameEd = "Фамилия";
+        Data::nameEd = "Имя";
         Data::secondNameEd = "Отчество";
         Data::sexEd = "МУЖ";
         Data::birthDateEd = "10-10-10";
